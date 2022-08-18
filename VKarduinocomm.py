@@ -6,7 +6,11 @@ from scipy.optimize import fsolve
 import csv
 import time
 
-ser = serial.Serial('/dev/ttyACM0',115200)
+try:
+    ser = serial.Serial('/dev/ttyACM0',115200)
+except Exception:
+    print("serial didnt work")
+    pass
 
 #getting current timestamp
 localtime = time.localtime()
@@ -14,7 +18,7 @@ strttime = time.strftime("%d-%I:%M:%S", localtime)
 print(strttime)
 
 inx = 0
-
+#%%
 #FILENAME EDIT HERE:
 #if want to create new file then put strttime as first part
 #if appending previous then input timestamp and following name
@@ -26,10 +30,13 @@ filenameavg = filename + "avg"
 form = ".txt"
 
 #EXPERIMENT CONDITIONS HERE
-a = 1
-b = 2
-c = 3
-v = 1
+a = 0.15
+b = 0.3
+c = 0.45
+d = 0.6
+e = 0.75
+f = 0.88
+v = 10/60
 #position of validation sensor temperature from arduino code
 valdpos = 12
 
@@ -42,11 +49,12 @@ mastguess = np.array([guess1, guess2, guess3])
 
 #INPUT MAXIMUM AND MINIMUM PREDICTION TEMPERATURES YOU ARE WILLING TO ACCEPT, AND MAXIMUM JUMP IN TEMPERATURE
 lbnd = 20
-upbnd = 80
-maxjump = 10
-
+upbnd = 70
+maxjump = 5
+#%%
 #creating initial array, IF APPENDING PREVIOUS THEN COMMENTIFY ALL THIS
 empt = np.empty(0)
+results = np.empty(0)
 
 try:
     np.savetxt(filename + form, empt, delimiter = ',')
@@ -59,24 +67,28 @@ except Exception:
     print("error: saving initial avg file")
 
 reset = False
-
+#%%
 while True: 
     print("----------")
-    read_serial=ser.readline()
-    #print(type(read_serial))
-    #print(read_serial)
-    
-    #change to string and eliminate \r\n
-    strraw = read_serial.decode()
-    strraw = strraw.rstrip()
-    #print(type(strraw))
-    #print(strraw)
-    
-    #splitting into list, using commas
-    strraw = strraw.split(",")
-    #print(type(strraw))
-    #print(strraw)
+    try: 
+        read_serial=ser.readline()
+        #print(type(read_serial))
+        #print(read_serial)
         
+        #change to string and eliminate \r\n
+        strraw = read_serial.decode()
+        strraw = strraw.rstrip()
+        #print(type(strraw))
+        #print(strraw)
+        
+        #splitting into list, using commas
+        strraw = strraw.split(",")
+        #print(type(strraw))
+        #print(strraw)
+    except Exception:
+        print("couldn't read")
+        pass
+#%%
     #converting to float code
     
     try:
@@ -89,9 +101,9 @@ while True:
     
     #choose which temp indicates what
     try:
-        A = float(raw[0])
-        B = float(raw[1])
-        C = float(raw[2])
+        A = raw[0]
+        B = raw[1]
+        C = raw[2]
         D = raw[3]
         E = raw[4]
         F = raw[5]
@@ -108,7 +120,7 @@ while True:
     if solution[2] > 10 or solution[2] < 10:
         solution[2] = float(guess3)
     '''
-    
+#%%
     #attempt 1    
     try:
         def eqs(x):
@@ -121,7 +133,7 @@ while True:
             h = Tc + (Th - Tc)*np.exp(-k*(c/v)) - C
             
             return [f, g, h]
-        guess = np.array([solution[0], solution[1], solution[2]])
+        guess = solution
         #print(type(guess))
         solution = fsolve(eqs, guess)
         print("trial values solution [T_h, T_c, k]: ", solution)
@@ -131,7 +143,7 @@ while True:
         err = True
         pass
     
-#%%    
+#%%
     #attempt 2, guess from previous for Th, but fixed guesses for Tc & k
     if err == True:
         try:
@@ -155,7 +167,7 @@ while True:
             pass
     else:
         pass
-       
+#%%
     #solving attempt 3, with all fixed guess values
     if err == True:
         try:
@@ -195,25 +207,25 @@ while True:
     except Exception:
         print("error: fetching solution array")
         pass
-    
+#%%
     #check for change from previous temperature
     inx1 = inx - 1
-    if inx >= 1:
+    if inx > 0:
         try:
-            change = solution[0] - results[inx1,1]
-            if abs(change) > maxjump:
+            change = solution[0] - results[inx1,7]
+            if abs(change)>maxjump and abs(change)<1000 and results[inx1,1]>lbnd and results[inx1,1]<upbnd:
                 redjump = True
-            if abs(change) < maxump:
+            if abs(change)>maxjump and abs(change)<1000 and results[inx1,1]>lbnd and results[inx1,1]<upbnd:
                 redjump = False
             print("change: ", change)
-            while abs(change)>maxjump and abs(change)<1000 and results[inx1,1]>20 and results[inx1,1]<1000:
+            while abs(change)>maxjump and abs(change)<1000 and results[inx1,1]>lbnd and results[inx1,1]<upbnd:
                 if change > 0:
                     solution[0] -= 1
-                    change = solution[0] - results[inx1,1]
+                    change = solution[0] - results[inx1,7]
                     print("change: ", change)
                 if change < 0:
                     solution[0] += 1
-                    change = solution[0] - results[inx1,1]
+                    change = solution[0] - results[inx1,7]
                     print("change: ", change)
             if redjump == True:
                 print("Reduced Jump Th:", solution[0])
@@ -222,14 +234,14 @@ while True:
             pass
     else:
         pass
-    
+#%%
     #anomalous final check, if so reset values
     if (solution[0]<lbnd or solution[0]>upbnd):
         print("Unable to find reasonable solution")
         inx1 = inx - 1
         try:
-            print(np.shape(results))
-            solution = np.array([results[inx,1], results[inx,2], results[inx,3]])
+            #print(np.shape(results))
+            solution[0] = results[inx1,7]
         except Exception:
             print("error previousing")
             solution = mastguess
@@ -238,7 +250,7 @@ while True:
         #reset = True
     else:
         pass
-    
+#%%
 #if reset == False:
     #calculating delta
     try:
@@ -253,7 +265,8 @@ while True:
     
     #creating solution line to append
     try:
-        res = np.append(raw[valdpos], solution)
+        res = np.array([A, B, C, D, E, F, raw[valdpos]])
+        res = np.append(res, solution)
         res = np.append(res, deltaarr)
         #print(np.shape(res))
         print("Results: Tval, Th, Tc, k, delta", res)
@@ -281,7 +294,7 @@ while True:
         if inx == 0 or inx == 1:
             avgposs = False
         else:
-            Thav = np.mean([results[inx,1], results[inx1,1], results[inx2,1]])
+            Thav = np.mean([results[inx,7], results[inx1,7], results[inx2,7]])
             avgposs = True
     except Exception:
         print("error: averaging")
@@ -328,7 +341,8 @@ while True:
     
     #creating solution line to append
     try:
-        resav = np.append(raw[valdpos], solutionav)
+        resav = np.array([A, B, C, D, E, F, raw[valdpos]])
+        resav = np.append(resav, solutionav)
         resav = np.append(resav, deltaarrav)
         #print(np.shape(res))
         print("Results: Tval, Thav, Tc, k, deltaav", resav)
